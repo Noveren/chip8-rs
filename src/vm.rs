@@ -20,8 +20,6 @@ impl std::fmt::Display for VMError {
 
 impl std::error::Error for VMError { }
 
-
-
 #[allow(unused)]
 pub struct VM {
     index:  u16,
@@ -30,7 +28,7 @@ pub struct VM {
     stack:  [u16; 16],
     regs:   [u8; 16],
     timer:  (u8, u8),
-    gfx:    [u8; 64 * 32],
+    pub gfx:    [u8; 64 * 32],
     keys:   [u8; 16],
     memory: [u8; 4096],
 }
@@ -108,7 +106,7 @@ impl VM {
 impl VM {
     #[allow(unused)]
     fn load<const MAX: usize, const OFFSET: usize>(&mut self, buffer: &[u8]) -> Result<(), VMError> {
-        if buffer.len() >= MAX {
+        if buffer.len() > MAX {
             Err(VMError::OutOfBuffer)
         } else {
             for i in 0x000..buffer.len() {
@@ -168,6 +166,36 @@ impl VM {
         return Ok(())
     }
 
+    /// Draw a sprite at position `VX`, `VY` with `N` bytes of sprite data starting at the address stored in `I`
+    /// 
+    /// Set `VF` to `01` if any set pixels are changed to unset, and `00` otherwise
+    #[allow(unused)]
+    fn exec_dnnn(&mut self, opcode: u16) -> Result<(), VMError> {
+        let vx   = ((opcode & 0x0F00) >> 8) as usize;
+        let vy   = ((opcode & 0x00F0) >> 4) as usize;
+        let vx   = self.regs[vx] as usize;
+        let vy   = self.regs[vy] as usize;
+        let  n   = ((opcode & 0x000F)     ) as usize;
+        for i in 0..n {
+            let pixel = self.memory[(self.index as usize) + i];
+            println!("Pixel: {:08b}", pixel);
+            let start_line = vy + i;
+            if start_line >= 32 {
+                break;
+            }
+            let start = start_line * 64 + vx;
+            for j in 0..8 {
+                if vx + j >= 64 {
+                    break;
+                }
+                self.gfx[start + j] = (pixel << j) & 0b10000000;
+            }
+        }
+        // TODO draw flag
+        // TODO VF
+        return Ok(())
+    }
+
     // Store the binary-coded decimal equivalent of the value stored in register VX at addresses `I`, `I + 1`, and `I + 2`
     #[allow(unused)]
     fn exec_fx33(&mut self, vx: usize) -> Result<(), VMError> {
@@ -210,6 +238,7 @@ impl VM {
             0x6000 => self.exec_6xnn(opcode),
             0x8000 => self.driv_8000(opcode),
             0xa000 => self.exec_annn(opcode),
+            0xd000 => self.exec_dnnn(opcode),
             0xf000 => self.driv_f000(opcode),
             _ => Err(VMError::UnknowedOpcode),
         };
@@ -232,4 +261,39 @@ impl VM {
     pub fn load_fontset(&mut self, buffer: &[u8]) -> Result<(), VMError> {
         self.load::<0x050, 0x000>(buffer)
     }
+
+    #[allow(unused)]
+    pub fn get_gfx(&self) -> &[u8] {
+        return &self.gfx[..];
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_1nnn() {
+        let mut vm: VM = Default::default();
+        vm.load_rom(&[
+            0x12, 0xF0,
+        ]).unwrap();
+        vm.step().unwrap();
+        assert_eq!(
+            vm.pc, 0x2F0
+        );
+    }
+
+    #[test]
+    fn test_annn() {
+        let mut vm: VM = Default::default();
+        vm.load_rom(&[
+            0xA2, 0xF0,
+        ]).unwrap();
+        vm.step().unwrap();
+        assert_eq!(
+            vm.index, 0x2F0
+        );
+    }
+
 }
